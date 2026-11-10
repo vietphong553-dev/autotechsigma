@@ -1,0 +1,737 @@
+-- Autotechsigma (Final Fixed Cam Snap & Clean Directional Flick)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Camera = Workspace.CurrentCamera
+
+local tbl = {
+    Enabled = true, 
+    AutoFlickCam = true, 
+    WindowStart = 0.18, 
+    WindowEnd = 0.76, 
+    MagnetMode = "PullForce", 
+    PullForce = 55, 
+    Strength = 18, 
+    Smooth = 0.7, 
+    PullDuration = 0.18, 
+    NoclipExtraTime = 0.12, 
+    CheckLength = 2, 
+    CheckWidth = 6, 
+    MaxLockDistance = 12, 
+    StickDistance = 8.5, 
+    TargetPart = "Torso", 
+    TargetAnimations = {["10479335397"] = true, ["13380255751"] = true}, 
+    FraudConfig = {
+        Enabled = true, 
+        TP_Time = 0.7, 
+        MaxLockDistance = 12, 
+        TargetAnimations = {["10479335397"] = true, ["13380255751"] = true}
+    }, 
+    LoopConfig = {
+        DASH_CANCEL_DELAY = 0.36, 
+        DASH_COOLDOWN = 3,   
+        LOCK_DURATION = 0.63, 
+        LOOP_DELAY = 0.31, 
+        FLICK_DELAY = 0.18, 
+        JUMP_VELOCITY = 53, 
+        FLICK_INTENSITY = 0.22, 
+        FLICK_SMOOTHING = 0.65
+    }
+}
+
+local tbl1 = {IsChecking = false, CharConnections = {}, NpcList = {}}
+local tbl2 = {}
+tbl2.Character = nil
+tbl2.RootPart = nil
+tbl2.Humanoid = nil
+tbl2.Animator = nil
+tbl2.IsChecking = false
+tbl2.CharConnections = {}
+tbl2.NpcList = {}
+tbl2.PullConnection = nil
+tbl2.NoclipConnection = nil
+tbl2.EnemyPartsToNoclip = {}
+
+local LocalPlayer = Players.LocalPlayer
+local v1 = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart
+local Humanoid
+local Animator
+local flag = false
+local flag1 = true
+local num = 0
+local lastExecutionTime = 0
+local tbl3 = {}
+
+function tbl3.ClearConnections()
+    for _, charConnection in ipairs(tbl2.CharConnections) do
+        if charConnection.Connected then
+            charConnection:Disconnect()
+        end
+    end
+    table.clear(tbl2.CharConnections)
+end
+
+function tbl3.GetTargetNode(character)
+    if not character or not character.Parent then return nil end
+    local Head = character:FindFirstChild("Head")
+    local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if tbl.TargetPart == "Head" then return Head or root end
+    if tbl.TargetPart == "Neck" then return (Head and torso and Head) or torso or root end
+    return torso or root
+end
+
+function tbl3.GetTargetPosition(character)
+    if not character then return nil end
+    if tbl.TargetPart == "Neck" then
+        local Head = character:FindFirstChild("Head")
+        local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+        if Head and torso then return (Head.Position + torso.Position) / 2 end
+        if Head then return Head.Position - Vector3.new(0, 0.8, 0) end
+    end
+    local targetNode = tbl3.GetTargetNode(character)
+    return targetNode and targetNode.Position or nil
+end
+
+function tbl3.IsFacingTarget(arg1)
+    if not arg1 or not tbl2.RootPart then return false end
+    local pos = tbl3.GetTargetPosition(arg1)
+    if not pos then return false end
+
+    local v2 = tbl2.RootPart.CFrame:PointToObjectSpace(pos)
+    local v3 = -v2.Z
+    local v4 = math.abs(v2.X)
+    return v3 > -0.5 and v3 <= tbl.CheckLength and v4 <= tbl.CheckWidth
+end
+
+function tbl3.CancelDash()
+    if not tbl2.RootPart then return end
+    for _, child in ipairs(tbl2.RootPart:GetChildren()) do
+        if child:IsA("BodyMover") or child:IsA("Constraint") or string.find(child.ClassName, "Velocity") or string.find(child.ClassName, "Force") then
+            child:Destroy()
+        end
+    end
+    tbl2.RootPart.AssemblyLinearVelocity = Vector3.new(0, tbl2.RootPart.AssemblyLinearVelocity.Y * 0.2, 0)
+    tbl2.RootPart.AssemblyAngularVelocity = Vector3.zero
+end
+
+function tbl3.GetClosestTarget()
+    local Character
+    local huge = math.huge
+    if not tbl2.RootPart then return nil end
+    local Position = tbl2.RootPart.Position
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health > 0 then
+                local Magnitude = (Position - hrp.Position).Magnitude
+                if Magnitude < huge and Magnitude <= tbl.MaxLockDistance then
+                    Character = player.Character
+                    huge = Magnitude
+                end
+            end
+        end
+    end
+
+    for _, npcRoot in ipairs(tbl2.NpcList) do
+        if npcRoot and npcRoot.Parent then
+            local npcHum = npcRoot.Parent:FindFirstChildOfClass("Humanoid")
+            if npcHum and npcHum.Health > 0 then
+                local Magnitude1 = (Position - npcRoot.Position).Magnitude
+                if Magnitude1 < huge and Magnitude1 <= tbl.MaxLockDistance then
+                    huge = Magnitude1
+                    Character = npcRoot.Parent
+                end
+            end
+        end
+    end
+    return Character
+end
+
+local function func_stopNoclip()
+    if tbl2.NoclipConnection then
+        tbl2.NoclipConnection:Disconnect()
+        tbl2.NoclipConnection = nil
+    end
+    for k, v in pairs(tbl2.EnemyPartsToNoclip) do
+        if k and k.Parent then k.CanCollide = v end
+    end
+    table.clear(tbl2.EnemyPartsToNoclip)
+end
+
+local function func_pullTarget(arg1)
+    if tbl2.PullConnection then
+        tbl2.PullConnection:Disconnect()
+        tbl2.PullConnection = nil
+    end
+    func_stopNoclip()
+    local startTime = os.clock()
+
+    if arg1 then
+        for _, descendant in ipairs(arg1:GetDescendants()) do
+            if descendant:IsA("BasePart") and not descendant:IsA("Accessory") then
+                local Name = descendant.Name
+                if not string.find(Name, "Leg") and not string.find(Name, "Foot") and Name ~= "HumanoidRootPart" then
+                    tbl2.EnemyPartsToNoclip[descendant] = descendant.CanCollide
+                end
+            end
+        end
+        tbl2.NoclipConnection = RunService.Stepped:Connect(function()
+            local elapsed = os.clock() - startTime
+            if not arg1 or not arg1.Parent or elapsed >= tbl.PullDuration + tbl.NoclipExtraTime then
+                func_stopNoclip()
+                return
+            end
+            for k in pairs(tbl2.EnemyPartsToNoclip) do
+                if k.Parent then k.CanCollide = false end
+            end
+        end)
+    end
+
+    tbl2.PullConnection = RunService.Heartbeat:Connect(function()
+        if os.clock() - startTime >= tbl.PullDuration or not arg1 or not arg1.Parent then
+            if tbl2.PullConnection then
+                tbl2.PullConnection:Disconnect()
+                tbl2.PullConnection = nil
+            end
+            return
+        end
+        local targetNode = tbl3.GetTargetNode(arg1)
+        if not targetNode or not tbl2.RootPart then return end
+        local dir = targetNode.Position - tbl2.RootPart.Position
+        if dir.Magnitude > 0.05 then
+            tbl2.RootPart.AssemblyLinearVelocity = tbl2.RootPart.AssemblyLinearVelocity:Lerp(dir.Unit * tbl.PullForce, tbl.Smooth)
+        end
+    end)
+end
+
+local function func2()
+    if not tbl.Enabled or tbl2.IsChecking then return end
+    local target = tbl3.GetClosestTarget()
+    if not target then return end
+    local pos = tbl3.GetTargetPosition(target)
+    if not pos or not tbl2.RootPart or (tbl2.RootPart.Position - pos).Magnitude > tbl.MaxLockDistance then return end
+
+    tbl2.IsChecking = true
+    local start = os.clock()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local elapsed = os.clock() - start
+        if elapsed > tbl.WindowEnd or not target or not target.Parent then
+            connection:Disconnect()
+            tbl2.IsChecking = false
+            return
+        end
+        if elapsed >= tbl.WindowStart and elapsed <= tbl.WindowEnd then
+            local currentPos = tbl3.GetTargetPosition(target)
+            if not currentPos then return end
+            if (tbl2.RootPart.Position - currentPos).Magnitude <= tbl.StickDistance then
+                if tbl3.IsFacingTarget(target) then
+                    connection:Disconnect()
+                    tbl2.IsChecking = false
+                    tbl3.CancelDash()
+                    tbl2.RootPart.CFrame = CFrame.new(currentPos)
+                    func_pullTarget(target)
+                end
+            end
+        end
+    end)
+end
+
+local function func3()
+    if not tbl.Enabled then return end
+    local target = tbl3.GetClosestTarget()
+    if not target then return end
+    local targetHrp = target:FindFirstChild("HumanoidRootPart")
+    if not targetHrp or not tbl2.RootPart then return end
+    if (tbl2.RootPart.Position - targetHrp.Position).Magnitude > 22 then return end
+
+    local tpTime = math.clamp(tbl.FraudConfig.TP_Time, 0.6, 0.75)
+    task.spawn(function()
+        local start = os.clock()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if os.clock() - start >= tpTime then
+                connection:Disconnect()
+                pcall(function()
+                    if not target or not target.Parent or not tbl2.RootPart or not tbl2.RootPart.Parent then return end
+                    if not Humanoid or Humanoid.Health <= 0 then return end
+                    local hrp = target:FindFirstChild("HumanoidRootPart")
+                    if not hrp or not hrp.Parent then return end
+                    local mag = (tbl2.RootPart.Position - hrp.Position).Magnitude
+                    if mag > 25 or (tbl2.RootPart.AssemblyLinearVelocity.Y < -40 and tbl2.RootPart.Position.Y < 10) then return end
+                    local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or hrp
+                    if torso then
+                        local finalPos = torso.Position + Vector3.new(0, 0.5, 0)
+                        if finalPos.Y < -50 then return end
+                        tbl2.RootPart.CFrame = CFrame.new(finalPos)
+                        tbl2.RootPart.AssemblyLinearVelocity = Vector3.zero
+                    end
+                end)
+                return
+            end
+            if not target or not target.Parent then
+                connection:Disconnect()
+                tbl1.IsChecking = false
+            end
+        end)
+    end)
+end
+
+local function func4()
+    local Live = Workspace:FindFirstChild("Live")
+    if not Live or not HumanoidRootPart then return nil end
+    local maxDist = 150
+    local closest
+    for _, child in ipairs(Live:GetChildren()) do
+        if child:IsA("Model") and child ~= v1 then
+            if child.Name == "Weakest Dummy" or Players:GetPlayerFromCharacter(child) then
+                local hrp = child:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local mag = (HumanoidRootPart.Position - hrp.Position).Magnitude
+                    if mag < maxDist then
+                        closest = child
+                        maxDist = mag
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function func5()
+    local humanoidRootPart = HumanoidRootPart
+    local humanoid = Humanoid
+    local target = func4()
+
+    if not target or not humanoidRootPart or not humanoid then
+        pcall(function()
+            if humanoid and humanoid.Parent then
+                humanoid.AutoRotate = true
+                humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+                humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
+            end
+        end)
+        flag = false
+        return
+    end
+
+    local targetHrp = target:FindFirstChild("HumanoidRootPart")
+    if not targetHrp or not targetHrp.Parent or (humanoidRootPart.Position - targetHrp.Position).Magnitude > 25 then
+        pcall(function()
+            if humanoid and humanoid.Parent then
+                humanoid.AutoRotate = true
+                humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+            end
+        end)
+        flag = false
+        return
+    end
+
+    local start = tick()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local elapsed = tick() - start
+        if not flag1 or elapsed > tbl.LoopConfig.LOCK_DURATION or not targetHrp or not targetHrp.Parent or not humanoidRootPart or not humanoidRootPart.Parent then
+            pcall(function()
+                if humanoid and humanoid.Parent then
+                    humanoid.AutoRotate = true
+                    if humanoidRootPart.AssemblyLinearVelocity.Y < -40 then
+                        humanoidRootPart.AssemblyLinearVelocity = Vector3.new(humanoidRootPart.AssemblyLinearVelocity.X, -10, humanoidRootPart.AssemblyLinearVelocity.Z)
+                    end
+                end
+            end)
+            connection:Disconnect()
+            flag = false
+            return
+        end
+
+        local enemyHum = target:FindFirstChildOfClass("Humanoid")
+        if not enemyHum or enemyHum.Health <= 0 then
+            if humanoid.Parent then humanoid.AutoRotate = true end
+            connection:Disconnect()
+            flag = false
+            return
+        end
+
+        pcall(function()
+            humanoid.AutoRotate = false
+            local DataPing = Stats.Network.ServerStatsItem:FindFirstChild("Data Ping")
+            local pingVal = DataPing and DataPing:GetValue() / 1000
+            local vel = targetHrp.AssemblyLinearVelocity
+            local predict = 0.4 - elapsed + (pingVal or 0)
+            local vector3 = Vector3.new(targetHrp.Position.X + vel.X * predict, humanoidRootPart.Position.Y, targetHrp.Position.Z + vel.Z * predict)
+            
+            local lookCF = CFrame.lookAt(humanoidRootPart.Position, vector3)
+            humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(lookCF, (elapsed < 0.05) and tbl.LoopConfig.FLICK_INTENSITY or tbl.LoopConfig.FLICK_SMOOTHING)
+            
+            -- CHỐNG TỰ ĐỘNG BẺ HƯỚNG SANG PHẢI KHI KẾT THÚC
+            if tbl.AutoFlickCam and target then
+                local currentCamCF = Camera.CFrame
+                local camPos = currentCamCF.Position
+                local targetDir = (vector3 - humanoidRootPart.Position).Unit
+                -- Khóa chặt góc nhìn ngang bám sát mục tiêu, giữ nguyên độ cao Y hiện tại, không cho lệch sang phải
+                local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z))
+                Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+            end
+        end)
+    end)
+
+    task.delay(tbl.LoopConfig.LOCK_DURATION + 0.5, function()
+        pcall(function()
+            if humanoid and humanoid.Parent then humanoid.AutoRotate = true end
+            flag = false
+        end)
+        pcall(function()
+            if connection and connection.Connected then connection:Disconnect() end
+        end)
+    end)
+end
+
+local function func6()
+    local Communicate = v1:FindFirstChild("Communicate")
+    if Communicate then
+        Communicate:FireServer({Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress"})
+    end
+end
+
+local function func7()
+    local npcTable = {}
+    local function searchFolder(folder)
+        if not folder then return end
+        for _, child in ipairs(folder:GetChildren()) do
+            if child:IsA("Model") and child ~= v1 and child ~= tbl2.Character then
+                local hum = child:FindFirstChildOfClass("Humanoid")
+                local hrp = child:FindFirstChild("HumanoidRootPart")
+                if hum and hrp and hum.Health > 0 then
+                    table.insert(npcTable, hrp)
+                end
+            end
+        end
+    end
+    searchFolder(Workspace)
+    searchFolder(Workspace:FindFirstChild("Live"))
+    searchFolder(Workspace:FindFirstChild("Characters"))
+    tbl2.NpcList = npcTable
+    tbl1.NpcList = npcTable
+end
+
+local function func8(character)
+    num = num + 1
+    v1 = character
+    HumanoidRootPart = v1:WaitForChild("HumanoidRootPart")
+    Humanoid = v1:WaitForChild("Humanoid")
+    Animator = Humanoid:WaitForChild("Animator")
+    tbl2.Character = character
+    tbl2.RootPart = HumanoidRootPart
+    tbl2.Humanoid = Humanoid
+    tbl2.Animator = Animator
+    flag = false
+    tbl1.IsChecking = false
+    tbl2.IsChecking = false
+
+    tbl3.ClearConnections()
+    pcall(function()
+        Humanoid.BreakJointsOnDeath = false
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    end)
+end
+
+local function func13(animatorObj, currentNum)
+    animatorObj.AnimationPlayed:Connect(function(track)
+        if currentNum ~= num or not flag1 or not tbl.Enabled then return end
+
+        for k in pairs(tbl.TargetAnimations) do
+            if string.find(track.Animation.AnimationId, k) then
+                task.wait(0.01)
+                func2()
+                break
+            end
+        end
+
+        if track.Animation.AnimationId == "rbxassetid://10479335397" and flag then
+            local hrp = HumanoidRootPart
+            task.delay(tbl.LoopConfig.DASH_CANCEL_DELAY, function()
+                if currentNum ~= num or not hrp or not hrp.Parent then return end
+                hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
+                for _, child in ipairs(hrp:GetChildren()) do
+                    if child:IsA("BodyVelocity") or child:IsA("LinearVelocity") then child:Destroy() end
+                end
+            end)
+        end
+
+        if track.Animation.AnimationId == "rbxassetid://10503381238" then
+            if (tick() - lastExecutionTime) < tbl.LoopConfig.DASH_COOLDOWN then
+                return
+            end
+
+            local currentTarget = func4() or tbl3.GetClosestTarget()
+            if not currentTarget then return end
+
+            func3()
+            if flag then return end
+            flag = true
+
+            task.spawn(function()
+                local spawnNum = num
+                task.wait(tbl.LoopConfig.LOOP_DELAY)
+
+                if not func4() or not flag1 or spawnNum ~= num or not HumanoidRootPart then
+                    flag = false
+                    return
+                end
+
+                local hrp = HumanoidRootPart
+                local v3 = math.min(tbl.LoopConfig.JUMP_VELOCITY, 18)
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, v3, hrp.AssemblyLinearVelocity.Z)
+
+                func6()
+                task.wait(tbl.LoopConfig.FLICK_DELAY)
+
+                if flag1 and spawnNum == num then
+                    if func4() then func5() end
+                end
+
+                lastExecutionTime = tick()
+                flag = false
+            end)
+        end
+    end)
+end
+
+-- UI SETUP (ENGLISH)
+local tbl4 = {}
+local container = typeof(gethui) == "function" and gethui() or CoreGui
+
+pcall(function()
+    if container:FindFirstChild("AutotechsigmaUI") then container.AutotechsigmaUI:Destroy() end
+    if container:FindFirstChild("TechHelperV1UI") then container.TechHelperV1UI:Destroy() end
+end)
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutotechsigmaUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = container
+
+local openBtn = Instance.new("TextButton")
+openBtn.Name = "OpenButton"
+openBtn.Size = UDim2.fromOffset(80, 32)
+openBtn.Position = UDim2.new(0, 10, 0.5, 0)
+openBtn.BackgroundColor3 = Color3.fromRGB(12, 12, 25)
+openBtn.Text = "OPEN"
+openBtn.TextColor3 = Color3.fromRGB(175, 125, 255)
+openBtn.TextSize = 12
+openBtn.Font = Enum.Font.GothamBold
+openBtn.Visible = false
+openBtn.Active = true
+openBtn.Draggable = true
+openBtn.Parent = screenGui
+Instance.new("UICorner", openBtn).CornerRadius = UDim.new(0, 8)
+
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.fromOffset(260, 90)
+frame.Position = UDim2.new(0.5, -130, 0.25, 0)
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 25)
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 9)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -45, 0, 24)
+title.Position = UDim2.fromOffset(5, 1)
+title.BackgroundTransparency = 1
+title.Text = "AUTOTECHSIGMA"
+title.TextColor3 = Color3.fromRGB(175, 125, 255)
+title.TextSize = 12
+title.Font = Enum.Font.GothamBold
+title.Parent = frame
+
+local subTitle = Instance.new("TextLabel")
+subTitle.Size = UDim2.new(1, -45, 0, 15)
+subTitle.Position = UDim2.fromOffset(5, 21)
+subTitle.BackgroundTransparency = 1
+subTitle.Text = "AUTOTECHSIGMA"
+subTitle.TextColor3 = Color3.fromRGB(155, 145, 190)
+subTitle.TextSize = 9
+subTitle.Font = Enum.Font.GothamMedium
+subTitle.Parent = frame
+
+local configBtn = Instance.new("TextButton")
+configBtn.Size = UDim2.fromOffset(27, 27)
+configBtn.Position = UDim2.new(1, -62, 0, 5)
+configBtn.BackgroundColor3 = Color3.fromRGB(43, 30, 80)
+configBtn.Text = "+"
+configBtn.TextColor3 = Color3.new(1, 1, 1)
+configBtn.TextSize = 22
+configBtn.Font = Enum.Font.GothamBold
+configBtn.Parent = frame
+Instance.new("UICorner", configBtn).CornerRadius = UDim.new(0, 7)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.fromOffset(27, 27)
+closeBtn.Position = UDim2.new(1, -32, 0, 5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.new(1, 1, 1)
+closeBtn.TextSize = 16
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = frame
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 7)
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(1, -16, 0, 28)
+toggleBtn.Position = UDim2.fromOffset(8, 42)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(74, 158, 74)
+toggleBtn.Text = "ON"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextSize = 14
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.Parent = frame
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
+
+local scrollingFrame = Instance.new("ScrollingFrame")
+scrollingFrame.Name = "ConfigPanel"
+scrollingFrame.Size = UDim2.fromOffset(260, 320)
+scrollingFrame.Position = UDim2.new(0, 0, 1, 8)
+scrollingFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 22)
+scrollingFrame.ScrollBarThickness = 4
+scrollingFrame.Visible = false
+scrollingFrame.Parent = frame
+Instance.new("UICorner", scrollingFrame).CornerRadius = UDim.new(0, 9)
+
+local flickToggleBtn = Instance.new("TextButton")
+flickToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
+flickToggleBtn.Position = UDim2.fromOffset(10, 10)
+flickToggleBtn.BackgroundColor3 = Color3.fromRGB(74, 158, 74)
+flickToggleBtn.Text = "Auto Flick Cam: ON"
+flickToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+flickToggleBtn.TextSize = 11
+flickToggleBtn.Font = Enum.Font.GothamBold
+flickToggleBtn.Parent = scrollingFrame
+Instance.new("UICorner", flickToggleBtn).CornerRadius = UDim.new(0, 6)
+
+flickToggleBtn.MouseButton1Click:Connect(function()
+    tbl.AutoFlickCam = not tbl.AutoFlickCam
+    flickToggleBtn.Text = tbl.AutoFlickCam and "Auto Flick Cam: ON" or "Auto Flick Cam: OFF"
+    flickToggleBtn.BackgroundColor3 = tbl.AutoFlickCam and Color3.fromRGB(74, 158, 74) or Color3.fromRGB(45, 35, 75)
+end)
+
+local function addOption(labelText, key, defaultVal, posY)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(0.56, -8, 0, 28)
+    lbl.Position = UDim2.fromOffset(8, posY)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = labelText
+    lbl.TextColor3 = Color3.fromRGB(230, 230, 245)
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = scrollingFrame
+
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0.4, 0, 0, 24)
+    box.Position = UDim2.fromOffset(148, posY)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+    box.Text = tostring(defaultVal)
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.TextSize = 11
+    box.Font = Enum.Font.GothamMedium
+    box.Parent = scrollingFrame
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 5)
+
+    box.FocusLost:Connect(function(enter)
+        if enter then
+            local n = tonumber(box.Text)
+            if n then
+                if key == "DASH_COOLDOWN" then tbl.LoopConfig.DASH_COOLDOWN = math.max(0, n)
+                elseif key == "PullForce" then tbl.PullForce = n
+                elseif key == "DASH_CANCEL_DELAY" then tbl.LoopConfig.DASH_CANCEL_DELAY = n
+                elseif key == "LOCK_DURATION" then tbl.LoopConfig.LOCK_DURATION = n
+                elseif key == "LOOP_DELAY" then tbl.LoopConfig.LOOP_DELAY = n
+                elseif key == "FLICK_DELAY" then tbl.LoopConfig.FLICK_DELAY = n
+                elseif key == "JUMP_VELOCITY" then tbl.LoopConfig.JUMP_VELOCITY = math.min(n, 30)
+                elseif key == "FLICK_INTENSITY" then tbl.LoopConfig.FLICK_INTENSITY = n
+                elseif key == "FLICK_SMOOTHING" then tbl.LoopConfig.FLICK_SMOOTHING = n
+                elseif key == "TP_Time" then tbl.FraudConfig.TP_Time = math.clamp(n, 0.6, 0.78)
+                end
+            end
+        end
+    end)
+    tbl4[key] = box
+end
+
+addOption("Dash Cooldown", "DASH_COOLDOWN", tbl.LoopConfig.DASH_COOLDOWN, 44)
+addOption("Pull Force:", "PullForce", tbl.PullForce, 76)
+addOption("Cancel Delay:", "DASH_CANCEL_DELAY", tbl.LoopConfig.DASH_CANCEL_DELAY, 108)
+addOption("Lock Duration:", "LOCK_DURATION", tbl.LoopConfig.LOCK_DURATION, 140)
+addOption("Loop Delay:", "LOOP_DELAY", tbl.LoopConfig.LOOP_DELAY, 172)
+addOption("Flick Delay:", "FLICK_DELAY", tbl.LoopConfig.FLICK_DELAY, 204)
+addOption("Jump Velocity:", "JUMP_VELOCITY", tbl.LoopConfig.JUMP_VELOCITY, 236)
+addOption("Flick Intensity:", "FLICK_INTENSITY", tbl.LoopConfig.FLICK_INTENSITY, 268)
+addOption("Flick Smooth:", "FLICK_SMOOTHING", tbl.LoopConfig.FLICK_SMOOTHING, 300)
+addOption("TP Time:", "TP_Time", tbl.FraudConfig.TP_Time, 332)
+scrollingFrame.CanvasSize = UDim2.fromOffset(0, 370)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    tbl.Enabled = not tbl.Enabled
+    toggleBtn.Text = tbl.Enabled and "ON" or "OFF"
+    toggleBtn.BackgroundColor3 = tbl.Enabled and Color3.fromRGB(74, 158, 74) or Color3.fromRGB(45, 35, 75)
+    flag1 = tbl.Enabled
+end)
+
+configBtn.MouseButton1Click:Connect(function()
+    scrollingFrame.Visible = not scrollingFrame.Visible
+    configBtn.Text = scrollingFrame.Visible and "-" or "+"
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    frame.Visible = false
+    openBtn.Visible = true
+    scrollingFrame.Visible = false
+    configBtn.Text = "+"
+end)
+
+openBtn.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    openBtn.Visible = false
+end)
+
+local uiHidden = false
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        uiHidden = not uiHidden
+        frame.Visible = not uiHidden and not openBtn.Visible
+        openBtn.Visible = not uiHidden and not frame.Visible
+        if uiHidden then
+            frame.Visible = false
+            openBtn.Visible = false
+        else
+            frame.Visible = true
+        end
+    end
+end)
+
+func8(v1)
+func13(Animator, num)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    func8(character)
+    func13(Animator, num)
+end)
+
+task.spawn(function()
+    while task.wait(1) do func7() end
+end)
