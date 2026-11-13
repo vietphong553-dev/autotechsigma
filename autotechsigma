@@ -1,4 +1,4 @@
--- Autotechsigma (Final Fixed Cam Snap & Clean Directional Flick)
+-- Autotechsigma (Complete Fixed Version: Proper Uppercut Timing, Draw Tech & PC/Mobile Support)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,6 +11,9 @@ local Camera = Workspace.CurrentCamera
 local tbl = {
     Enabled = true, 
     AutoFlickCam = true, 
+    TechMode = "DashTech", -- "DashTech" hoặc "DrawTech"
+    DeviceMode = "PC",     -- "PC" hoặc "Mobile"
+    ActivationKey = Enum.KeyCode.E, 
     WindowStart = 0.18, 
     WindowEnd = 0.76, 
     MagnetMode = "PullForce", 
@@ -33,15 +36,18 @@ local tbl = {
     }, 
     LoopConfig = {
         DASH_CANCEL_DELAY = 0.36, 
-        DASH_COOLDOWN = 3,   
+        DASH_COOLDOWN = 1.5,   
         LOCK_DURATION = 0.63, 
-        LOOP_DELAY = 0.31, 
-        FLICK_DELAY = 0.18, 
+        LOOP_DELAY = 0.31,   -- Đã fix: Đợi uppercut đánh trúng xong mới nhảy + dash
+        FLICK_DELAY = 0.18,  -- Đã fix: Nhịp trễ chuẩn trước khi bẻ góc cam
         JUMP_VELOCITY = 53, 
         FLICK_INTENSITY = 0.22, 
         FLICK_SMOOTHING = 0.65
     }
 }
+
+local drawPoints = {}
+local isDrawing = false
 
 local tbl1 = {IsChecking = false, CharConnections = {}, NpcList = {}}
 local tbl2 = {}
@@ -374,14 +380,26 @@ local function func5()
             local lookCF = CFrame.lookAt(humanoidRootPart.Position, vector3)
             humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(lookCF, (elapsed < 0.05) and tbl.LoopConfig.FLICK_INTENSITY or tbl.LoopConfig.FLICK_SMOOTHING)
             
-            -- CHỐNG TỰ ĐỘNG BẺ HƯỚNG SANG PHẢI KHI KẾT THÚC
             if tbl.AutoFlickCam and target then
                 local currentCamCF = Camera.CFrame
                 local camPos = currentCamCF.Position
-                local targetDir = (vector3 - humanoidRootPart.Position).Unit
-                -- Khóa chặt góc nhìn ngang bám sát mục tiêu, giữ nguyên độ cao Y hiện tại, không cho lệch sang phải
-                local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z))
-                Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                
+                -- Nếu chọn chế độ DrawTech và đã vẽ đường nét, camera sẽ flick theo đúng hình vẽ
+                if tbl.TechMode == "DrawTech" and #drawPoints > 0 then
+                    local pointIndex = math.clamp(math.floor((elapsed / tbl.LoopConfig.LOCK_DURATION) * #drawPoints) + 1, 1, #drawPoints)
+                    local p = drawPoints[pointIndex]
+                    local targetDir = (vector3 - humanoidRootPart.Position).Unit
+                    local sideOffset = (p.X - 90) * 0.04
+                    local upOffset = (p.Y - 75) * 0.025
+                    local offset = Vector3.new(sideOffset, -upOffset, 0)
+                    
+                    local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z) + offset)
+                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                else
+                    local targetDir = (vector3 - humanoidRootPart.Position).Unit
+                    local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z))
+                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                end
             end
         end)
     end)
@@ -402,6 +420,47 @@ local function func6()
     if Communicate then
         Communicate:FireServer({Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress"})
     end
+end
+
+-- Hàm thực thi Tech với tùy chọn độ trễ (customDelay = 0 khi bấm nút E/TECH, hoặc dùng LOOP_DELAY khi nối combo Uppercut)
+local function executeTechWithDelay(customDelay)
+    if not tbl.Enabled or flag then return end
+    if (tick() - lastExecutionTime) < tbl.LoopConfig.DASH_COOLDOWN then return end
+
+    local currentTarget = func4() or tbl3.GetClosestTarget()
+    if not currentTarget then return end
+
+    func3()
+    if flag then return end
+    flag = true
+
+    local waitTime = customDelay or tbl.LoopConfig.LOOP_DELAY
+
+    task.spawn(function()
+        local spawnNum = num
+        if waitTime > 0 then
+            task.wait(waitTime)
+        end
+
+        if not func4() or not flag1 or spawnNum ~= num or not HumanoidRootPart then
+            flag = false
+            return
+        end
+
+        local hrp = HumanoidRootPart
+        local v3 = math.min(tbl.LoopConfig.JUMP_VELOCITY, 18)
+        hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, v3, hrp.AssemblyLinearVelocity.Z)
+
+        func6()
+        task.wait(tbl.LoopConfig.FLICK_DELAY)
+
+        if flag1 and spawnNum == num then
+            if func4() then func5() end
+        end
+
+        lastExecutionTime = tick()
+        flag = false
+    end)
 end
 
 local function func7()
@@ -471,46 +530,14 @@ local function func13(animatorObj, currentNum)
             end)
         end
 
+        -- Tự động nối combo sau khi Uppercut đánh trúng (sử dụng LOOP_DELAY = 0.31s để không dash sớm)
         if track.Animation.AnimationId == "rbxassetid://10503381238" then
-            if (tick() - lastExecutionTime) < tbl.LoopConfig.DASH_COOLDOWN then
-                return
-            end
-
-            local currentTarget = func4() or tbl3.GetClosestTarget()
-            if not currentTarget then return end
-
-            func3()
-            if flag then return end
-            flag = true
-
-            task.spawn(function()
-                local spawnNum = num
-                task.wait(tbl.LoopConfig.LOOP_DELAY)
-
-                if not func4() or not flag1 or spawnNum ~= num or not HumanoidRootPart then
-                    flag = false
-                    return
-                end
-
-                local hrp = HumanoidRootPart
-                local v3 = math.min(tbl.LoopConfig.JUMP_VELOCITY, 18)
-                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, v3, hrp.AssemblyLinearVelocity.Z)
-
-                func6()
-                task.wait(tbl.LoopConfig.FLICK_DELAY)
-
-                if flag1 and spawnNum == num then
-                    if func4() then func5() end
-                end
-
-                lastExecutionTime = tick()
-                flag = false
-            end)
+            executeTechWithDelay(tbl.LoopConfig.LOOP_DELAY)
         end
     end)
 end
 
--- UI SETUP (ENGLISH)
+-- UI SETUP
 local tbl4 = {}
 local container = typeof(gethui) == "function" and gethui() or CoreGui
 
@@ -523,6 +550,28 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AutotechsigmaUI"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = container
+
+-- Nút TECH trên Mobile (bấm là dash ngay lập tức)
+local touchBtn = Instance.new("TextButton")
+touchBtn.Name = "MobileTechButton"
+touchBtn.Size = UDim2.fromOffset(70, 70)
+touchBtn.Position = UDim2.new(0.8, -35, 0.6, -35)
+touchBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 200)
+touchBtn.Text = "TECH"
+touchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+touchBtn.TextSize = 14
+touchBtn.Font = Enum.Font.GothamBold
+touchBtn.Visible = false
+touchBtn.Active = true
+touchBtn.Draggable = true
+touchBtn.Parent = screenGui
+Instance.new("UICorner", touchBtn).CornerRadius = UDim.new(1, 0)
+
+touchBtn.MouseButton1Click:Connect(function()
+    if tbl.DeviceMode == "Mobile" and tbl.Enabled then
+        executeTechWithDelay(0.02)
+    end
+end)
 
 local openBtn = Instance.new("TextButton")
 openBtn.Name = "OpenButton"
@@ -629,6 +678,146 @@ flickToggleBtn.MouseButton1Click:Connect(function()
     flickToggleBtn.BackgroundColor3 = tbl.AutoFlickCam and Color3.fromRGB(74, 158, 74) or Color3.fromRGB(45, 35, 75)
 end)
 
+local deviceToggleBtn = Instance.new("TextButton")
+deviceToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
+deviceToggleBtn.Position = UDim2.fromOffset(10, 46)
+deviceToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 90, 160)
+deviceToggleBtn.Text = "Device: PC"
+deviceToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+deviceToggleBtn.TextSize = 11
+deviceToggleBtn.Font = Enum.Font.GothamBold
+deviceToggleBtn.Parent = scrollingFrame
+Instance.new("UICorner", deviceToggleBtn).CornerRadius = UDim.new(0, 6)
+
+deviceToggleBtn.MouseButton1Click:Connect(function()
+    if tbl.DeviceMode == "PC" then
+        tbl.DeviceMode = "Mobile"
+        deviceToggleBtn.Text = "Device: Mobile"
+        deviceToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 60, 120)
+        touchBtn.Visible = true
+    else
+        tbl.DeviceMode = "PC"
+        deviceToggleBtn.Text = "Device: PC"
+        deviceToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 90, 160)
+        touchBtn.Visible = false
+    end
+end)
+
+local modeToggleBtn = Instance.new("TextButton")
+modeToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
+modeToggleBtn.Position = UDim2.fromOffset(10, 82)
+modeToggleBtn.BackgroundColor3 = Color3.fromRGB(43, 30, 80)
+modeToggleBtn.Text = "Mode: Dash Tech"
+modeToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeToggleBtn.TextSize = 11
+modeToggleBtn.Font = Enum.Font.GothamBold
+modeToggleBtn.Parent = scrollingFrame
+Instance.new("UICorner", modeToggleBtn).CornerRadius = UDim.new(0, 6)
+
+-- Bấm phím tắt trên PC (mặc định E) sẽ kích hoạt ngay lập tức
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and tbl.DeviceMode == "PC" and tbl.Enabled then
+        if input.KeyCode == tbl.ActivationKey then
+            executeTechWithDelay(0.02)
+        end
+    end
+end)
+
+local drawWindow = Instance.new("Frame")
+drawWindow.Name = "DrawTechWindow"
+drawWindow.Size = UDim2.fromOffset(200, 220)
+drawWindow.Position = UDim2.new(1, 8, 0, 0)
+drawWindow.BackgroundColor3 = Color3.fromRGB(15, 15, 30)
+drawWindow.Visible = false
+drawWindow.Parent = frame
+Instance.new("UICorner", drawWindow).CornerRadius = UDim.new(0, 8)
+
+local drawTitle = Instance.new("TextLabel")
+drawTitle.Size = UDim2.new(1, 0, 0, 24)
+drawTitle.BackgroundTransparency = 1
+drawTitle.Text = "Draw Tech Canvas"
+drawTitle.TextColor3 = Color3.fromRGB(175, 125, 255)
+drawTitle.TextSize = 11
+drawTitle.Font = Enum.Font.GothamBold
+drawTitle.Parent = drawWindow
+
+local canvas = Instance.new("Frame")
+canvas.Size = UDim2.fromOffset(180, 150)
+canvas.Position = UDim2.fromOffset(10, 28)
+canvas.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
+canvas.ClipsDescendants = true
+canvas.Parent = drawWindow
+Instance.new("UICorner", canvas).CornerRadius = UDim.new(0, 6)
+
+local function addDrawDot(relX, relY)
+    table.insert(drawPoints, Vector2.new(relX, relY))
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.fromOffset(4, 4)
+    dot.Position = UDim2.fromOffset(relX - 2, relY - 2)
+    dot.BackgroundColor3 = Color3.fromRGB(255, 100, 255)
+    dot.BorderSizePixel = 0
+    dot.Parent = canvas
+end
+
+canvas.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDrawing = true
+        local canvasPos = canvas.AbsolutePosition
+        local canvasSize = canvas.AbsoluteSize
+        local relX = math.clamp(input.Position.X - canvasPos.X, 0, canvasSize.X)
+        local relY = math.clamp(input.Position.Y - canvasPos.Y, 0, canvasSize.Y)
+        addDrawDot(relX, relY)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDrawing = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if isDrawing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local canvasPos = canvas.AbsolutePosition
+        local canvasSize = canvas.AbsoluteSize
+        local relX = math.clamp(input.Position.X - canvasPos.X, 0, canvasSize.X)
+        local relY = math.clamp(input.Position.Y - canvasPos.Y, 0, canvasSize.Y)
+        addDrawDot(relX, relY)
+    end
+end)
+
+local clearDrawBtn = Instance.new("TextButton")
+clearDrawBtn.Size = UDim2.fromOffset(180, 24)
+clearDrawBtn.Position = UDim2.fromOffset(10, 186)
+clearDrawBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
+clearDrawBtn.Text = "Clear Drawing"
+clearDrawBtn.TextColor3 = Color3.new(1, 1, 1)
+clearDrawBtn.TextSize = 10
+clearDrawBtn.Font = Enum.Font.GothamBold
+clearDrawBtn.Parent = drawWindow
+Instance.new("UICorner", clearDrawBtn).CornerRadius = UDim.new(0, 5)
+
+clearDrawBtn.MouseButton1Click:Connect(function()
+    table.clear(drawPoints)
+    for _, child in ipairs(canvas:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+end)
+
+modeToggleBtn.MouseButton1Click:Connect(function()
+    if tbl.TechMode == "DashTech" then
+        tbl.TechMode = "DrawTech"
+        modeToggleBtn.Text = "Mode: Draw Tech"
+        modeToggleBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 160)
+        drawWindow.Visible = true
+    else
+        tbl.TechMode = "DashTech"
+        modeToggleBtn.Text = "Mode: Dash Tech"
+        modeToggleBtn.BackgroundColor3 = Color3.fromRGB(43, 30, 80)
+        drawWindow.Visible = false
+    end
+end)
+
 local function addOption(labelText, key, defaultVal, posY)
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(0.56, -8, 0, 28)
@@ -654,18 +843,29 @@ local function addOption(labelText, key, defaultVal, posY)
 
     box.FocusLost:Connect(function(enter)
         if enter then
-            local n = tonumber(box.Text)
-            if n then
-                if key == "DASH_COOLDOWN" then tbl.LoopConfig.DASH_COOLDOWN = math.max(0, n)
-                elseif key == "PullForce" then tbl.PullForce = n
-                elseif key == "DASH_CANCEL_DELAY" then tbl.LoopConfig.DASH_CANCEL_DELAY = n
-                elseif key == "LOCK_DURATION" then tbl.LoopConfig.LOCK_DURATION = n
-                elseif key == "LOOP_DELAY" then tbl.LoopConfig.LOOP_DELAY = n
-                elseif key == "FLICK_DELAY" then tbl.LoopConfig.FLICK_DELAY = n
-                elseif key == "JUMP_VELOCITY" then tbl.LoopConfig.JUMP_VELOCITY = math.min(n, 30)
-                elseif key == "FLICK_INTENSITY" then tbl.LoopConfig.FLICK_INTENSITY = n
-                elseif key == "FLICK_SMOOTHING" then tbl.LoopConfig.FLICK_SMOOTHING = n
-                elseif key == "TP_Time" then tbl.FraudConfig.TP_Time = math.clamp(n, 0.6, 0.78)
+            local text = box.Text
+            if key == "PC_KEY" then
+                local foundKey = Enum.KeyCode[text:upper()]
+                if foundKey then
+                    tbl.ActivationKey = foundKey
+                    box.Text = text:upper()
+                else
+                    box.Text = tostring(tbl.ActivationKey.Name)
+                end
+            else
+                local n = tonumber(text)
+                if n then
+                    if key == "DASH_COOLDOWN" then tbl.LoopConfig.DASH_COOLDOWN = math.max(0, n)
+                    elseif key == "PullForce" then tbl.PullForce = n
+                    elseif key == "DASH_CANCEL_DELAY" then tbl.LoopConfig.DASH_CANCEL_DELAY = n
+                    elseif key == "LOCK_DURATION" then tbl.LoopConfig.LOCK_DURATION = n
+                    elseif key == "LOOP_DELAY" then tbl.LoopConfig.LOOP_DELAY = n
+                    elseif key == "FLICK_DELAY" then tbl.LoopConfig.FLICK_DELAY = n
+                    elseif key == "JUMP_VELOCITY" then tbl.LoopConfig.JUMP_VELOCITY = math.min(n, 30)
+                    elseif key == "FLICK_INTENSITY" then tbl.LoopConfig.FLICK_INTENSITY = n
+                    elseif key == "FLICK_SMOOTHING" then tbl.LoopConfig.FLICK_SMOOTHING = n
+                    elseif key == "TP_Time" then tbl.FraudConfig.TP_Time = math.clamp(n, 0.6, 0.78)
+                    end
                 end
             end
         end
@@ -673,17 +873,18 @@ local function addOption(labelText, key, defaultVal, posY)
     tbl4[key] = box
 end
 
-addOption("Dash Cooldown", "DASH_COOLDOWN", tbl.LoopConfig.DASH_COOLDOWN, 44)
-addOption("Pull Force:", "PullForce", tbl.PullForce, 76)
-addOption("Cancel Delay:", "DASH_CANCEL_DELAY", tbl.LoopConfig.DASH_CANCEL_DELAY, 108)
-addOption("Lock Duration:", "LOCK_DURATION", tbl.LoopConfig.LOCK_DURATION, 140)
-addOption("Loop Delay:", "LOOP_DELAY", tbl.LoopConfig.LOOP_DELAY, 172)
-addOption("Flick Delay:", "FLICK_DELAY", tbl.LoopConfig.FLICK_DELAY, 204)
-addOption("Jump Velocity:", "JUMP_VELOCITY", tbl.LoopConfig.JUMP_VELOCITY, 236)
-addOption("Flick Intensity:", "FLICK_INTENSITY", tbl.LoopConfig.FLICK_INTENSITY, 268)
-addOption("Flick Smooth:", "FLICK_SMOOTHING", tbl.LoopConfig.FLICK_SMOOTHING, 300)
-addOption("TP Time:", "TP_Time", tbl.FraudConfig.TP_Time, 332)
-scrollingFrame.CanvasSize = UDim2.fromOffset(0, 370)
+addOption("PC Key (e.g. E):", "PC_KEY", "E", 118)
+addOption("Dash Cooldown", "DASH_COOLDOWN", tbl.LoopConfig.DASH_COOLDOWN, 152)
+addOption("Pull Force:", "PullForce", tbl.PullForce, 184)
+addOption("Cancel Delay:", "DASH_CANCEL_DELAY", tbl.LoopConfig.DASH_CANCEL_DELAY, 216)
+addOption("Lock Duration:", "LOCK_DURATION", tbl.LoopConfig.LOCK_DURATION, 248)
+addOption("Loop Delay:", "LOOP_DELAY", tbl.LoopConfig.LOOP_DELAY, 280)
+addOption("Flick Delay:", "FLICK_DELAY", tbl.LoopConfig.FLICK_DELAY, 312)
+addOption("Jump Velocity:", "JUMP_VELOCITY", tbl.LoopConfig.JUMP_VELOCITY, 344)
+addOption("Flick Intensity:", "FLICK_INTENSITY", tbl.LoopConfig.FLICK_INTENSITY, 376)
+addOption("Flick Smooth:", "FLICK_SMOOTHING", tbl.LoopConfig.FLICK_SMOOTHING, 408)
+addOption("TP Time:", "TP_Time", tbl.FraudConfig.TP_Time, 440)
+scrollingFrame.CanvasSize = UDim2.fromOffset(0, 480)
 
 toggleBtn.MouseButton1Click:Connect(function()
     tbl.Enabled = not tbl.Enabled
@@ -695,18 +896,26 @@ end)
 configBtn.MouseButton1Click:Connect(function()
     scrollingFrame.Visible = not scrollingFrame.Visible
     configBtn.Text = scrollingFrame.Visible and "-" or "+"
+    if not scrollingFrame.Visible then
+        drawWindow.Visible = false
+    elseif tbl.TechMode == "DrawTech" then
+        drawWindow.Visible = true
+    end
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
     frame.Visible = false
     openBtn.Visible = true
     scrollingFrame.Visible = false
+    drawWindow.Visible = false
+    if tbl.DeviceMode == "Mobile" then touchBtn.Visible = false end
     configBtn.Text = "+"
 end)
 
 openBtn.MouseButton1Click:Connect(function()
     frame.Visible = true
     openBtn.Visible = false
+    if tbl.DeviceMode == "Mobile" then touchBtn.Visible = true end
 end)
 
 local uiHidden = false
@@ -718,8 +927,16 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if uiHidden then
             frame.Visible = false
             openBtn.Visible = false
+            drawWindow.Visible = false
+            touchBtn.Visible = false
         else
             frame.Visible = true
+            if tbl.TechMode == "DrawTech" and scrollingFrame.Visible then
+                drawWindow.Visible = true
+            end
+            if tbl.DeviceMode == "Mobile" then
+                touchBtn.Visible = true
+            end
         end
     end
 end)
