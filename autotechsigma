@@ -1,4 +1,4 @@
--- Autotechsigma (Complete Fixed Version: Proper Uppercut Timing, Draw Tech & PC/Mobile Support)
+-- Autotechsigma (Final Fixed Backward Flick Version)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -38,8 +38,8 @@ local tbl = {
         DASH_CANCEL_DELAY = 0.36, 
         DASH_COOLDOWN = 1.5,   
         LOCK_DURATION = 0.63, 
-        LOOP_DELAY = 0.31,   -- Đã fix: Đợi uppercut đánh trúng xong mới nhảy + dash
-        FLICK_DELAY = 0.18,  -- Đã fix: Nhịp trễ chuẩn trước khi bẻ góc cam
+        LOOP_DELAY = 0.31,  [cite: 2]
+        FLICK_DELAY = 0.18, [cite: 2]
         JUMP_VELOCITY = 53, 
         FLICK_INTENSITY = 0.22, 
         FLICK_SMOOTHING = 0.65
@@ -244,7 +244,9 @@ local function func2()
                     connection:Disconnect()
                     tbl2.IsChecking = false
                     tbl3.CancelDash()
-                    tbl2.RootPart.CFrame = CFrame.new(currentPos)
+                    if currentPos.Y > -45 then
+                        tbl2.RootPart.CFrame = CFrame.new(currentPos)
+                    end
                     func_pullTarget(target)
                 end
             end
@@ -277,7 +279,7 @@ local function func3()
                     local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or hrp
                     if torso then
                         local finalPos = torso.Position + Vector3.new(0, 0.5, 0)
-                        if finalPos.Y < -50 then return end
+                        if finalPos.Y < -45 then return end
                         tbl2.RootPart.CFrame = CFrame.new(finalPos)
                         tbl2.RootPart.AssemblyLinearVelocity = Vector3.zero
                     end
@@ -377,29 +379,37 @@ local function func5()
             local predict = 0.4 - elapsed + (pingVal or 0)
             local vector3 = Vector3.new(targetHrp.Position.X + vel.X * predict, humanoidRootPart.Position.Y, targetHrp.Position.Z + vel.Z * predict)
             
-            local lookCF = CFrame.lookAt(humanoidRootPart.Position, vector3)
+            local targetDir = (vector3 - humanoidRootPart.Position).Unit
+            local finalLookTarget = vector3
+            
+            -- ĐÃ FIX TRIỆT ĐỂ: Xử lý đúng hướng vẽ trên Canvas (Trái, Phải, Trước, Sau)
+            if tbl.TechMode == "DrawTech" and #drawPoints > 0 then
+                local pointIndex = math.clamp(math.floor((elapsed / tbl.LoopConfig.LOCK_DURATION) * #drawPoints) + 1, 1, #drawPoints)
+                local p = drawPoints[pointIndex]
+                
+                local sideOffset = (p.X - 90) / 45   -- Trái / Phải
+                local depthOffset = (75 - p.Y) / 45   -- Dương = Trước, Âm = Sau
+                
+                local camRight = Camera.CFrame.RightVector
+                local camLook = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z).Unit
+                
+                if depthOffset < -0.2 then
+                    -- Vẽ ra đằng sau: Flick ngược hoàn toàn ra sau lưng ngay từ đầu
+                    finalLookTarget = humanoidRootPart.Position - (targetDir * 12) + (camRight * sideOffset * 4)
+                else
+                    -- Vẽ các hướng còn lại (trái, phải, trước)
+                    finalLookTarget = vector3 + (camRight * sideOffset * 4) + (camLook * depthOffset * 4)
+                end
+            end
+
+            local lookCF = CFrame.lookAt(humanoidRootPart.Position, Vector3.new(finalLookTarget.X, humanoidRootPart.Position.Y, finalLookTarget.Z))
             humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(lookCF, (elapsed < 0.05) and tbl.LoopConfig.FLICK_INTENSITY or tbl.LoopConfig.FLICK_SMOOTHING)
             
             if tbl.AutoFlickCam and target then
                 local currentCamCF = Camera.CFrame
                 local camPos = currentCamCF.Position
-                
-                -- Nếu chọn chế độ DrawTech và đã vẽ đường nét, camera sẽ flick theo đúng hình vẽ
-                if tbl.TechMode == "DrawTech" and #drawPoints > 0 then
-                    local pointIndex = math.clamp(math.floor((elapsed / tbl.LoopConfig.LOCK_DURATION) * #drawPoints) + 1, 1, #drawPoints)
-                    local p = drawPoints[pointIndex]
-                    local targetDir = (vector3 - humanoidRootPart.Position).Unit
-                    local sideOffset = (p.X - 90) * 0.04
-                    local upOffset = (p.Y - 75) * 0.025
-                    local offset = Vector3.new(sideOffset, -upOffset, 0)
-                    
-                    local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z) + offset)
-                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
-                else
-                    local targetDir = (vector3 - humanoidRootPart.Position).Unit
-                    local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z))
-                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
-                end
+                local fixedLook = CFrame.lookAt(camPos, finalLookTarget)
+                Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
             end
         end)
     end)
@@ -422,7 +432,7 @@ local function func6()
     end
 end
 
--- Hàm thực thi Tech với tùy chọn độ trễ (customDelay = 0 khi bấm nút E/TECH, hoặc dùng LOOP_DELAY khi nối combo Uppercut)
+-- Hàm thực thi Tech với tùy chọn độ trễ
 local function executeTechWithDelay(customDelay)
     if not tbl.Enabled or flag then return end
     if (tick() - lastExecutionTime) < tbl.LoopConfig.DASH_COOLDOWN then return end
@@ -530,7 +540,7 @@ local function func13(animatorObj, currentNum)
             end)
         end
 
-        -- Tự động nối combo sau khi Uppercut đánh trúng (sử dụng LOOP_DELAY = 0.31s để không dash sớm)
+        -- Tự động nối combo sau khi Uppercut đánh trúng
         if track.Animation.AnimationId == "rbxassetid://10503381238" then
             executeTechWithDelay(tbl.LoopConfig.LOOP_DELAY)
         end
