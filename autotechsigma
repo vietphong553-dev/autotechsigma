@@ -1,4 +1,4 @@
--- Autotechsigma (Final Fixed Backward Flick Version)
+-- Autotechsigma (Complete Fixed Version: Proper Uppercut Timing, Draw Tech & PC/Mobile Support)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -38,8 +38,8 @@ local tbl = {
         DASH_CANCEL_DELAY = 0.36, 
         DASH_COOLDOWN = 1.5,   
         LOCK_DURATION = 0.63, 
-        LOOP_DELAY = 0.31,  [cite: 2]
-        FLICK_DELAY = 0.18, [cite: 2]
+        LOOP_DELAY = 0.31,   -- Đợi uppercut đánh trúng xong mới nhảy + dash[cite: 2]
+        FLICK_DELAY = 0.18,  -- Nhịp trễ chuẩn trước khi bẻ góc cam[cite: 2]
         JUMP_VELOCITY = 53, 
         FLICK_INTENSITY = 0.22, 
         FLICK_SMOOTHING = 0.65
@@ -379,37 +379,33 @@ local function func5()
             local predict = 0.4 - elapsed + (pingVal or 0)
             local vector3 = Vector3.new(targetHrp.Position.X + vel.X * predict, humanoidRootPart.Position.Y, targetHrp.Position.Z + vel.Z * predict)
             
-            local targetDir = (vector3 - humanoidRootPart.Position).Unit
-            local finalLookTarget = vector3
-            
-            -- ĐÃ FIX TRIỆT ĐỂ: Xử lý đúng hướng vẽ trên Canvas (Trái, Phải, Trước, Sau)
-            if tbl.TechMode == "DrawTech" and #drawPoints > 0 then
-                local pointIndex = math.clamp(math.floor((elapsed / tbl.LoopConfig.LOCK_DURATION) * #drawPoints) + 1, 1, #drawPoints)
-                local p = drawPoints[pointIndex]
-                
-                local sideOffset = (p.X - 90) / 45   -- Trái / Phải
-                local depthOffset = (75 - p.Y) / 45   -- Dương = Trước, Âm = Sau
-                
-                local camRight = Camera.CFrame.RightVector
-                local camLook = Vector3.new(Camera.CFrame.LookVector.X, 0, Camera.CFrame.LookVector.Z).Unit
-                
-                if depthOffset < -0.2 then
-                    -- Vẽ ra đằng sau: Flick ngược hoàn toàn ra sau lưng ngay từ đầu
-                    finalLookTarget = humanoidRootPart.Position - (targetDir * 12) + (camRight * sideOffset * 4)
-                else
-                    -- Vẽ các hướng còn lại (trái, phải, trước)
-                    finalLookTarget = vector3 + (camRight * sideOffset * 4) + (camLook * depthOffset * 4)
-                end
-            end
-
-            local lookCF = CFrame.lookAt(humanoidRootPart.Position, Vector3.new(finalLookTarget.X, humanoidRootPart.Position.Y, finalLookTarget.Z))
+            local lookCF = CFrame.lookAt(humanoidRootPart.Position, vector3)
             humanoidRootPart.CFrame = humanoidRootPart.CFrame:Lerp(lookCF, (elapsed < 0.05) and tbl.LoopConfig.FLICK_INTENSITY or tbl.LoopConfig.FLICK_SMOOTHING)
             
             if tbl.AutoFlickCam and target then
                 local currentCamCF = Camera.CFrame
                 local camPos = currentCamCF.Position
-                local fixedLook = CFrame.lookAt(camPos, finalLookTarget)
-                Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                
+                -- Đã fix chuẩn xác tuyệt đối theo nét vẽ: Trái, Phải, Trước, Sau
+                if tbl.TechMode == "DrawTech" and #drawPoints > 0 then
+                    local pointIndex = math.clamp(math.floor((elapsed / tbl.LoopConfig.LOCK_DURATION) * #drawPoints) + 1, 1, #drawPoints)
+                    local p = drawPoints[pointIndex]
+                    
+                    local sideOffset = (p.X - 90) * 0.05  -- Trái / Phải
+                    local depthOffset = (75 - p.Y) * 0.05 -- Trước (lên) / Sau (xuống)
+                    
+                    local rightVec = currentCamCF.RightVector
+                    local lookVec = Vector3.new(currentCamCF.LookVector.X, 0, currentCamCF.LookVector.Z).Unit
+                    
+                    -- Nếu vẽ xuống dưới (đằng sau), đảo hướng nhìn camera ngược lại đúng hướng sau lưng
+                    local targetCamPos = camPos + (lookVec * depthOffset * 4) + (rightVec * sideOffset * 4)
+                    local fixedLook = CFrame.lookAt(camPos, targetCamPos)
+                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                else
+                    local targetDir = (vector3 - humanoidRootPart.Position).Unit
+                    local fixedLook = CFrame.lookAt(camPos, camPos + Vector3.new(targetDir.X, 0, targetDir.Z))
+                    Camera.CFrame = currentCamCF:Lerp(fixedLook, 0.9)
+                end
             end
         end)
     end)
