@@ -1,4 +1,4 @@
--- Autotechsigma (Complete Fixed Version: Proper Uppercut Timing, Draw Tech & PC/Mobile Support)
+-- Autotechsigma (Complete Fixed Version: Anti-Void Protection & Proper Uppercut Timing)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -212,6 +212,10 @@ local function func_pullTarget(arg1)
         end
         local targetNode = tbl3.GetTargetNode(arg1)
         if not targetNode or not tbl2.RootPart then return end
+        
+        -- CHẶN RƠI VOID: Nếu vị trí kéo quá thấp thì hủy ngay
+        if targetNode.Position.Y < -35 or tbl2.RootPart.Position.Y < -35 then return end
+
         local dir = targetNode.Position - tbl2.RootPart.Position
         if dir.Magnitude > 0.05 then
             tbl2.RootPart.AssemblyLinearVelocity = tbl2.RootPart.AssemblyLinearVelocity:Lerp(dir.Unit * tbl.PullForce, tbl.Smooth)
@@ -239,14 +243,20 @@ local function func2()
         if elapsed >= tbl.WindowStart and elapsed <= tbl.WindowEnd then
             local currentPos = tbl3.GetTargetPosition(target)
             if not currentPos then return end
+            
+            -- CHẶN RƠI VOID TUYỆT ĐỐI
+            if currentPos.Y < -35 or tbl2.RootPart.Position.Y < -35 then
+                connection:Disconnect()
+                tbl2.IsChecking = false
+                return
+            end
+
             if (tbl2.RootPart.Position - currentPos).Magnitude <= tbl.StickDistance then
                 if tbl3.IsFacingTarget(target) then
                     connection:Disconnect()
                     tbl2.IsChecking = false
                     tbl3.CancelDash()
-                    if currentPos.Y > -45 then
-                        tbl2.RootPart.CFrame = CFrame.new(currentPos)
-                    end
+                    tbl2.RootPart.CFrame = CFrame.new(currentPos)
                     func_pullTarget(target)
                 end
             end
@@ -279,7 +289,10 @@ local function func3()
                     local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or hrp
                     if torso then
                         local finalPos = torso.Position + Vector3.new(0, 0.5, 0)
-                        if finalPos.Y < -45 then return end
+                        
+                        -- CHẶN RƠI VOID TUYỆT ĐỐI CHO FRAUD CONFIG
+                        if finalPos.Y < -35 or tbl2.RootPart.Position.Y < -35 then return end
+
                         tbl2.RootPart.CFrame = CFrame.new(finalPos)
                         tbl2.RootPart.AssemblyLinearVelocity = Vector3.zero
                     end
