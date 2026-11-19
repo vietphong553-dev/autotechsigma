@@ -1,4 +1,4 @@
--- Autotechsigma (Complete Fixed Version: Safe Y-Clamp Anti-Voiding)
+-- Autotechsigma (Complete Fixed Version: Proper Uppercut Timing, Draw Tech & PC/Mobile Support)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -239,17 +239,14 @@ local function func2()
         if elapsed >= tbl.WindowStart and elapsed <= tbl.WindowEnd then
             local currentPos = tbl3.GetTargetPosition(target)
             if not currentPos then return end
-            
-            -- Ép độ cao Y an toàn nếu chạm ngưỡng thấp (chống void không hủy lệnh)
-            local safeY = math.max(currentPos.Y, 3)
-            local fixedPos = Vector3.new(currentPos.X, safeY, currentPos.Z)
-
-            if (tbl2.RootPart.Position - fixedPos).Magnitude <= tbl.StickDistance then
+            if (tbl2.RootPart.Position - currentPos).Magnitude <= tbl.StickDistance then
                 if tbl3.IsFacingTarget(target) then
                     connection:Disconnect()
                     tbl2.IsChecking = false
                     tbl3.CancelDash()
-                    tbl2.RootPart.CFrame = CFrame.new(fixedPos)
+                    if currentPos.Y > -45 then
+                        tbl2.RootPart.CFrame = CFrame.new(currentPos)
+                    end
                     func_pullTarget(target)
                 end
             end
@@ -281,11 +278,8 @@ local function func3()
                     if mag > 25 or (tbl2.RootPart.AssemblyLinearVelocity.Y < -40 and tbl2.RootPart.Position.Y < 10) then return end
                     local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or hrp
                     if torso then
-                        local torsoPos = torso.Position
-                        -- Ép độ cao Y tối thiểu luôn ở mức an toàn trên mặt đất (không bao giờ xuống void)
-                        local safeY = math.max(torsoPos.Y, tbl2.RootPart.Position.Y, 3)
-                        local finalPos = Vector3.new(torsoPos.X, safeY + 0.5, torsoPos.Z)
-
+                        local finalPos = torso.Position + Vector3.new(0, 0.5, 0)
+                        if finalPos.Y < -45 then return end
                         tbl2.RootPart.CFrame = CFrame.new(finalPos)
                         tbl2.RootPart.AssemblyLinearVelocity = Vector3.zero
                     end
@@ -726,11 +720,11 @@ modeToggleBtn.Font = Enum.Font.GothamBold
 modeToggleBtn.Parent = scrollingFrame
 Instance.new("UICorner", modeToggleBtn).CornerRadius = UDim.new(0, 6)
 
--- Bấm phím tắt trên PC (mặc định E) sẽ kích hoạt ngay lập tức
+-- Bấm phím tắt trên PC (mặc định E)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and tbl.DeviceMode == "PC" and tbl.Enabled then
         if input.KeyCode == tbl.ActivationKey then
-            executeTechWithDelay(0.02)
+            executeTechWithDelay(0)
         end
     end
 end)
