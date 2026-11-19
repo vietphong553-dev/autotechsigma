@@ -12,6 +12,7 @@ local tbl = {
     Enabled = true, 
     AutoFlickCam = true, 
     TechMode = "DashTech", -- "DashTech" hoặc "DrawTech"
+    TriggerMode = "Both",  -- "Both", "Touch Mode", hoặc "Auto Tech"
     DeviceMode = "PC",     -- "PC" hoặc "Mobile"
     ActivationKey = Enum.KeyCode.E, 
     WindowStart = 0.18, 
@@ -538,7 +539,9 @@ local function func13(animatorObj, currentNum)
 
         -- Tự động nối combo sau khi Uppercut đánh trúng
         if track.Animation.AnimationId == "rbxassetid://10503381238" then
-            executeTechWithDelay(tbl.LoopConfig.LOOP_DELAY)
+            if tbl.TriggerMode == "Auto Tech" or tbl.TriggerMode == "Both" then
+                executeTechWithDelay(tbl.LoopConfig.LOOP_DELAY)
+            end
         end
     end)
 end
@@ -575,7 +578,9 @@ Instance.new("UICorner", touchBtn).CornerRadius = UDim.new(1, 0)
 
 touchBtn.MouseButton1Click:Connect(function()
     if tbl.DeviceMode == "Mobile" and tbl.Enabled then
-        executeTechWithDelay(0.02)
+        if tbl.TriggerMode == "Touch Mode" or tbl.TriggerMode == "Both" then
+            executeTechWithDelay(0)
+        end
     end
 end)
 
@@ -684,9 +689,28 @@ flickToggleBtn.MouseButton1Click:Connect(function()
     flickToggleBtn.BackgroundColor3 = tbl.AutoFlickCam and Color3.fromRGB(74, 158, 74) or Color3.fromRGB(45, 35, 75)
 end)
 
+local triggerModes = {"Both", "Touch Mode", "Auto Tech"}
+local triggerIndex = 1
+local triggerToggleBtn = Instance.new("TextButton")
+triggerToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
+triggerToggleBtn.Position = UDim2.fromOffset(10, 44)
+triggerToggleBtn.BackgroundColor3 = Color3.fromRGB(90, 60, 160)
+triggerToggleBtn.Text = "Mode: Both"
+triggerToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+triggerToggleBtn.TextSize = 11
+triggerToggleBtn.Font = Enum.Font.GothamBold
+triggerToggleBtn.Parent = scrollingFrame
+Instance.new("UICorner", triggerToggleBtn).CornerRadius = UDim.new(0, 6)
+
+triggerToggleBtn.MouseButton1Click:Connect(function()
+    triggerIndex = (triggerIndex % #triggerModes) + 1
+    tbl.TriggerMode = triggerModes[triggerIndex]
+    triggerToggleBtn.Text = "Mode: " .. tbl.TriggerMode
+end)
+
 local deviceToggleBtn = Instance.new("TextButton")
 deviceToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
-deviceToggleBtn.Position = UDim2.fromOffset(10, 46)
+deviceToggleBtn.Position = UDim2.fromOffset(10, 78)
 deviceToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 90, 160)
 deviceToggleBtn.Text = "Device: PC"
 deviceToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -711,7 +735,7 @@ end)
 
 local modeToggleBtn = Instance.new("TextButton")
 modeToggleBtn.Size = UDim2.new(0.92, 0, 0, 28)
-modeToggleBtn.Position = UDim2.fromOffset(10, 82)
+modeToggleBtn.Position = UDim2.fromOffset(10, 112)
 modeToggleBtn.BackgroundColor3 = Color3.fromRGB(43, 30, 80)
 modeToggleBtn.Text = "Mode: Dash Tech"
 modeToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -724,7 +748,9 @@ Instance.new("UICorner", modeToggleBtn).CornerRadius = UDim.new(0, 6)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and tbl.DeviceMode == "PC" and tbl.Enabled then
         if input.KeyCode == tbl.ActivationKey then
-            executeTechWithDelay(0)
+            if tbl.TriggerMode == "Touch Mode" or tbl.TriggerMode == "Both" then
+                executeTechWithDelay(0)
+            end
         end
     end
 end)
@@ -879,18 +905,18 @@ local function addOption(labelText, key, defaultVal, posY)
     tbl4[key] = box
 end
 
-addOption("PC Key (e.g. E):", "PC_KEY", "E", 118)
-addOption("Dash Cooldown", "DASH_COOLDOWN", tbl.LoopConfig.DASH_COOLDOWN, 152)
-addOption("Pull Force:", "PullForce", tbl.PullForce, 184)
-addOption("Cancel Delay:", "DASH_CANCEL_DELAY", tbl.LoopConfig.DASH_CANCEL_DELAY, 216)
-addOption("Lock Duration:", "LOCK_DURATION", tbl.LoopConfig.LOCK_DURATION, 248)
-addOption("Loop Delay:", "LOOP_DELAY", tbl.LoopConfig.LOOP_DELAY, 280)
-addOption("Flick Delay:", "FLICK_DELAY", tbl.LoopConfig.FLICK_DELAY, 312)
-addOption("Jump Velocity:", "JUMP_VELOCITY", tbl.LoopConfig.JUMP_VELOCITY, 344)
-addOption("Flick Intensity:", "FLICK_INTENSITY", tbl.LoopConfig.FLICK_INTENSITY, 376)
-addOption("Flick Smooth:", "FLICK_SMOOTHING", tbl.LoopConfig.FLICK_SMOOTHING, 408)
-addOption("TP Time:", "TP_Time", tbl.FraudConfig.TP_Time, 440)
-scrollingFrame.CanvasSize = UDim2.fromOffset(0, 480)
+addOption("PC Key (e.g. E):", "PC_KEY", "E", 148)
+addOption("Dash Cooldown", "DASH_COOLDOWN", tbl.LoopConfig.DASH_COOLDOWN, 182)
+addOption("Pull Force:", "PullForce", tbl.PullForce, 214)
+addOption("Cancel Delay:", "DASH_CANCEL_DELAY", tbl.LoopConfig.DASH_CANCEL_DELAY, 246)
+addOption("Lock Duration:", "LOCK_DURATION", tbl.LoopConfig.LOCK_DURATION, 278)
+addOption("Loop Delay:", "LOOP_DELAY", tbl.LoopConfig.LOOP_DELAY, 310)
+addOption("Flick Delay:", "FLICK_DELAY", tbl.LoopConfig.FLICK_DELAY, 342)
+addOption("Jump Velocity:", "JUMP_VELOCITY", tbl.LoopConfig.JUMP_VELOCITY, 374)
+addOption("Flick Intensity:", "FLICK_INTENSITY", tbl.LoopConfig.FLICK_INTENSITY, 406)
+addOption("Flick Smooth:", "FLICK_SMOOTHING", tbl.LoopConfig.FLICK_SMOOTHING, 438)
+addOption("TP Time:", "TP_Time", tbl.FraudConfig.TP_Time, 470)
+scrollingFrame.CanvasSize = UDim2.fromOffset(0, 510)
 
 toggleBtn.MouseButton1Click:Connect(function()
     tbl.Enabled = not tbl.Enabled
