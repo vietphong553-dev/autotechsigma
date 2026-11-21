@@ -47,6 +47,8 @@ local tbl = {
     }
 }
 
+local SAFE_Y = -20
+
 local drawPoints = {}
 local isDrawing = false
 
@@ -73,6 +75,18 @@ local flag1 = true
 local num = 0
 local lastExecutionTime = 0
 local tbl3 = {}
+
+local function isSafePos(posOrY)
+    local y = typeof(posOrY) == "Vector3" and posOrY.Y or posOrY
+    return typeof(y) == "number" and y > SAFE_Y
+end
+
+local function isNotFallingToVoid(part)
+    if not part or not part.Parent then return false end
+    if not isSafePos(part.Position.Y) then return false end
+    if part.AssemblyLinearVelocity.Y < -35 and part.Position.Y < 5 then return false end
+    return true
+end
 
 function tbl3.ClearConnections()
     for _, charConnection in ipairs(tbl2.CharConnections) do
@@ -124,21 +138,22 @@ function tbl3.CancelDash()
             child:Destroy()
         end
     end
-    tbl2.RootPart.AssemblyLinearVelocity = Vector3.new(0, tbl2.RootPart.AssemblyLinearVelocity.Y * 0.2, 0)
+    local safeVy = math.max(tbl2.RootPart.AssemblyLinearVelocity.Y * 0.2, 0)
+    tbl2.RootPart.AssemblyLinearVelocity = Vector3.new(0, safeVy, 0)
     tbl2.RootPart.AssemblyAngularVelocity = Vector3.zero
 end
 
 function tbl3.GetClosestTarget()
     local Character
     local huge = math.huge
-    if not tbl2.RootPart then return nil end
+    if not isNotFallingToVoid(tbl2.RootPart) then return nil end
     local Position = tbl2.RootPart.Position
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local hum = player.Character:FindFirstChildOfClass("Humanoid")
             local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            if hum and hrp and hum.Health > 0 then
+            if hum and hrp and hum.Health > 0 and isNotFallingToVoid(hrp) then
                 local Magnitude = (Position - hrp.Position).Magnitude
                 if Magnitude < huge and Magnitude <= tbl.MaxLockDistance then
                     Character = player.Character
@@ -149,7 +164,7 @@ function tbl3.GetClosestTarget()
     end
 
     for _, npcRoot in ipairs(tbl2.NpcList) do
-        if npcRoot and npcRoot.Parent then
+        if npcRoot and npcRoot.Parent and isNotFallingToVoid(npcRoot) then
             local npcHum = npcRoot.Parent:FindFirstChildOfClass("Humanoid")
             if npcHum and npcHum.Health > 0 then
                 local Magnitude1 = (Position - npcRoot.Position).Magnitude
@@ -213,9 +228,22 @@ local function func_pullTarget(arg1)
         end
         local targetNode = tbl3.GetTargetNode(arg1)
         if not targetNode or not tbl2.RootPart then return end
+        if not isNotFallingToVoid(tbl2.RootPart) or not isSafePos(targetNode.Position.Y) then
+            if tbl2.PullConnection then
+                tbl2.PullConnection:Disconnect()
+                tbl2.PullConnection = nil
+            end
+            func_stopNoclip()
+            tbl2.RootPart.AssemblyLinearVelocity = Vector3.new(0, math.max(tbl2.RootPart.AssemblyLinearVelocity.Y, 0), 0)
+            return
+        end
         local dir = targetNode.Position - tbl2.RootPart.Position
         if dir.Magnitude > 0.05 then
-            tbl2.RootPart.AssemblyLinearVelocity = tbl2.RootPart.AssemblyLinearVelocity:Lerp(dir.Unit * tbl.PullForce, tbl.Smooth)
+            local targetVel = dir.Unit * tbl.PullForce
+            if not isSafePos(targetNode.Position.Y - 4) then
+                targetVel = Vector3.new(targetVel.X, math.max(targetVel.Y, 5), targetVel.Z)
+            end
+            tbl2.RootPart.AssemblyLinearVelocity = tbl2.RootPart.AssemblyLinearVelocity:Lerp(targetVel, tbl.Smooth)
         end
     end)
 end
@@ -225,7 +253,7 @@ local function func2()
     local target = tbl3.GetClosestTarget()
     if not target then return end
     local pos = tbl3.GetTargetPosition(target)
-    if not pos or not tbl2.RootPart or (tbl2.RootPart.Position - pos).Magnitude > tbl.MaxLockDistance then return end
+    if not pos or not isSafePos(pos.Y) or not isNotFallingToVoid(tbl2.RootPart) or (tbl2.RootPart.Position - pos).Magnitude > tbl.MaxLockDistance then return end
 
     tbl2.IsChecking = true
     local start = os.clock()
@@ -239,13 +267,17 @@ local function func2()
         end
         if elapsed >= tbl.WindowStart and elapsed <= tbl.WindowEnd then
             local currentPos = tbl3.GetTargetPosition(target)
-            if not currentPos then return end
+            if not currentPos or not isSafePos(currentPos.Y) or not isNotFallingToVoid(tbl2.RootPart) then
+                connection:Disconnect()
+                tbl2.IsChecking = false
+                return
+            end
             if (tbl2.RootPart.Position - currentPos).Magnitude <= tbl.StickDistance then
                 if tbl3.IsFacingTarget(target) then
                     connection:Disconnect()
                     tbl2.IsChecking = false
                     tbl3.CancelDash()
-                    if currentPos.Y > -45 then
+                    if isSafePos(currentPos.Y) then
                         tbl2.RootPart.CFrame = CFrame.new(currentPos)
                     end
                     func_pullTarget(target)
@@ -260,7 +292,7 @@ local function func3()
     local target = tbl3.GetClosestTarget()
     if not target then return end
     local targetHrp = target:FindFirstChild("HumanoidRootPart")
-    if not targetHrp or not tbl2.RootPart then return end
+    if not targetHrp or not isNotFallingToVoid(tbl2.RootPart) or not isNotFallingToVoid(targetHrp) then return end
     if (tbl2.RootPart.Position - targetHrp.Position).Magnitude > 22 then return end
 
     local tpTime = math.clamp(tbl.FraudConfig.TP_Time, 0.6, 0.75)
@@ -276,11 +308,11 @@ local function func3()
                     local hrp = target:FindFirstChild("HumanoidRootPart")
                     if not hrp or not hrp.Parent then return end
                     local mag = (tbl2.RootPart.Position - hrp.Position).Magnitude
-                    if mag > 25 or (tbl2.RootPart.AssemblyLinearVelocity.Y < -40 and tbl2.RootPart.Position.Y < 10) then return end
+                    if mag > 25 or not isNotFallingToVoid(hrp) or not isNotFallingToVoid(tbl2.RootPart) then return end
                     local torso = target:FindFirstChild("Torso") or target:FindFirstChild("UpperTorso") or hrp
                     if torso then
                         local finalPos = torso.Position + Vector3.new(0, 0.5, 0)
-                        if finalPos.Y < -45 then return end
+                        if not isSafePos(finalPos.Y) then return end
                         tbl2.RootPart.CFrame = CFrame.new(finalPos)
                         tbl2.RootPart.AssemblyLinearVelocity = Vector3.zero
                     end
@@ -297,14 +329,14 @@ end
 
 local function func4()
     local Live = Workspace:FindFirstChild("Live")
-    if not Live or not HumanoidRootPart then return nil end
+    if not Live or not isNotFallingToVoid(HumanoidRootPart) then return nil end
     local maxDist = 150
     local closest
     for _, child in ipairs(Live:GetChildren()) do
         if child:IsA("Model") and child ~= v1 then
             if child.Name == "Weakest Dummy" or Players:GetPlayerFromCharacter(child) then
                 local hrp = child:FindFirstChild("HumanoidRootPart")
-                if hrp then
+                if hrp and isNotFallingToVoid(hrp) then
                     local mag = (HumanoidRootPart.Position - hrp.Position).Magnitude
                     if mag < maxDist then
                         closest = child
@@ -327,7 +359,9 @@ local function func5()
             if humanoid and humanoid.Parent then
                 humanoid.AutoRotate = true
                 humanoid:ChangeState(Enum.HumanoidStateType.Landed)
-                humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, -5, 0)
+                if humanoidRootPart and isSafePos(humanoidRootPart.Position.Y) then
+                    humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, math.max(humanoidRootPart.AssemblyLinearVelocity.Y, -5), 0)
+                end
             end
         end)
         flag = false
@@ -335,7 +369,7 @@ local function func5()
     end
 
     local targetHrp = target:FindFirstChild("HumanoidRootPart")
-    if not targetHrp or not targetHrp.Parent or (humanoidRootPart.Position - targetHrp.Position).Magnitude > 25 then
+    if not targetHrp or not targetHrp.Parent or not isNotFallingToVoid(targetHrp) or not isNotFallingToVoid(humanoidRootPart) or (humanoidRootPart.Position - targetHrp.Position).Magnitude > 25 then
         pcall(function()
             if humanoid and humanoid.Parent then
                 humanoid.AutoRotate = true
@@ -350,12 +384,12 @@ local function func5()
     local connection
     connection = RunService.Heartbeat:Connect(function()
         local elapsed = tick() - start
-        if not flag1 or elapsed > tbl.LoopConfig.LOCK_DURATION or not targetHrp or not targetHrp.Parent or not humanoidRootPart or not humanoidRootPart.Parent then
+        if not flag1 or elapsed > tbl.LoopConfig.LOCK_DURATION or not targetHrp or not targetHrp.Parent or not humanoidRootPart or not humanoidRootPart.Parent or not isNotFallingToVoid(targetHrp) or not isNotFallingToVoid(humanoidRootPart) then
             pcall(function()
                 if humanoid and humanoid.Parent then
                     humanoid.AutoRotate = true
-                    if humanoidRootPart.AssemblyLinearVelocity.Y < -40 then
-                        humanoidRootPart.AssemblyLinearVelocity = Vector3.new(humanoidRootPart.AssemblyLinearVelocity.X, -10, humanoidRootPart.AssemblyLinearVelocity.Z)
+                    if humanoidRootPart and humanoidRootPart.AssemblyLinearVelocity.Y < 0 then
+                        humanoidRootPart.AssemblyLinearVelocity = Vector3.new(humanoidRootPart.AssemblyLinearVelocity.X, 0, humanoidRootPart.AssemblyLinearVelocity.Z)
                     end
                 end
             end)
@@ -436,6 +470,7 @@ local function executeTechWithDelay(customDelay)
 
     local currentTarget = func4() or tbl3.GetClosestTarget()
     if not currentTarget then return end
+    if not isNotFallingToVoid(HumanoidRootPart) then return end
 
     func3()
     if flag then return end
@@ -449,7 +484,7 @@ local function executeTechWithDelay(customDelay)
             task.wait(waitTime)
         end
 
-        if not func4() or not flag1 or spawnNum ~= num or not HumanoidRootPart then
+        if not func4() or not flag1 or spawnNum ~= num or not isNotFallingToVoid(HumanoidRootPart) then
             flag = false
             return
         end
@@ -478,7 +513,7 @@ local function func7()
             if child:IsA("Model") and child ~= v1 and child ~= tbl2.Character then
                 local hum = child:FindFirstChildOfClass("Humanoid")
                 local hrp = child:FindFirstChild("HumanoidRootPart")
-                if hum and hrp and hum.Health > 0 then
+                if hum and hrp and hum.Health > 0 and isNotFallingToVoid(hrp) then
                     table.insert(npcTable, hrp)
                 end
             end
@@ -517,6 +552,7 @@ end
 local function func13(animatorObj, currentNum)
     animatorObj.AnimationPlayed:Connect(function(track)
         if currentNum ~= num or not flag1 or not tbl.Enabled then return end
+        if not isNotFallingToVoid(HumanoidRootPart) then return end
 
         for k in pairs(tbl.TargetAnimations) do
             if string.find(track.Animation.AnimationId, k) then
@@ -530,7 +566,8 @@ local function func13(animatorObj, currentNum)
             local hrp = HumanoidRootPart
             task.delay(tbl.LoopConfig.DASH_CANCEL_DELAY, function()
                 if currentNum ~= num or not hrp or not hrp.Parent then return end
-                hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0)
+                local safeVy = math.max(hrp.AssemblyLinearVelocity.Y, 0)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, safeVy, 0)
                 for _, child in ipairs(hrp:GetChildren()) do
                     if child:IsA("BodyVelocity") or child:IsA("LinearVelocity") then child:Destroy() end
                 end
